@@ -60,14 +60,13 @@ class CirrusCfg:
             raise TypeError(f"Expected 'config' argument to be a dictionary, not a {whatsit}")
         CirrusCfg._working = "global"
         # This makes a copy, doesn't touch the original
-        self.global_env = self.render_env(config.get("env", dict()))
+        self.global_env = self.render_env(config.get("env", {}))
         dbg(f"Rendered globals: {self.global_env}")
         self.global_type, self.global_image = self.get_type_image(config)
         dbg(f"Using global type '{self.global_type}' and image '{self.global_image}'")
         self.tasks = self.render_tasks(config)
         dbg(f"Processed {len(self.tasks)} tasks")
-        self.names = list(self.tasks.keys())
-        self.names.sort()
+        self.names = sorted(self.tasks.keys())
         self.names = tuple(self.names)  # help notice attempts to modify
 
     def render_env(self, env: Mapping[str, str]) -> Mapping[str, str]:
@@ -94,7 +93,7 @@ class CirrusCfg:
         """Replace shell-style references in env values, from global_env then env."""
         # This method is also used to initialize self.global_env
         if global_env is None:
-            global_env = dict()
+            global_env = {}
 
         rep = r"{\1}"  # Shell env var to python format string conversion regex
         def_fmt = DefFmt(**global_env)  # Assumes global_env already rendered
@@ -104,7 +103,7 @@ class CirrusCfg:
                 continue
             _ = def_fmt.dollarcurly_env_var.sub(rep, str(v))
             def_fmt[k] = def_fmt.dollar_env_var.sub(rep, _)
-        out = dict()
+        out = {}
         for k, v in def_fmt.items():
             if k in env:  # Don't unnecessarily duplicate globals
                 try:
@@ -118,7 +117,7 @@ class CirrusCfg:
 
     def render_tasks(self, tasks: Mapping[str, Any]) -> Mapping[str, Any]:
         """Return new tasks dict with envs rendered and matrices unrolled."""
-        result = dict()
+        result = {}
         for k, v in tasks.items():
             if not k.endswith("_task"):
                 continue
@@ -129,24 +128,23 @@ class CirrusCfg:
                 dbg(f"Processing matrix '{alias}'")
                 CirrusCfg._working = alias
                 # Assume Cirrus-CI accepted this config., don't check name clashes
-                result.update(self.unroll_matrix(name, alias, v))
-                CirrusCfg._working = 'global'
+                result |= self.unroll_matrix(name, alias, v)
             else:
                 dbg(f"Processing task '{name}'")
                 CirrusCfg._working = name
                 task = dict(alias=alias)
-                task["env"] = self.render_env(v.get("env", dict()))
+                task["env"] = self.render_env(v.get("env", {}))
                 task_name = self.render_value(name, task["env"])
                 _ = self.get_type_image(v, self.global_type, self.global_image)
                 self.init_task_type_image(task, *_)
                 result[task_name] = task
-                CirrusCfg._working = 'global'
+            CirrusCfg._working = 'global'
         return result
 
     def unroll_matrix(self, name_default: str, alias_default: str,
                       task: Mapping[str, Any]) -> Mapping[str, Any]:
         """Produce copies of task with attributes replaced from matrix list."""
-        result = dict()
+        result = {}
         for item in task["matrix"]:
             if "name" not in task and "name" not in item:
                 # Cirrus-CI goes a step further, attempting to generate a
@@ -159,12 +157,12 @@ class CirrusCfg:
                                  f" or matrix definition: {item}"
                                  f" for task definition: {task}")
             # default values for the rendered task - not mutable, needs a copy.
-            matrix_task = dict(alias=alias_default, env=task.get("env", dict()).copy())
+            matrix_task = dict(alias=alias_default, env=task.get("env", {}).copy())
             matrix_name = item.get("name", name_default)
             CirrusCfg._working = matrix_name
 
             # matrix item env. overwrites task env.
-            matrix_task["env"].update(item.get("env", dict()))
+            matrix_task["env"].update(item.get("env", {}))
             matrix_task["env"] = self.render_env(matrix_task["env"])
             matrix_name = self.render_value(matrix_name, matrix_task["env"])
             dbg(f"    Unrolling matrix for '{matrix_name}'")
@@ -198,12 +196,8 @@ class CirrusCfg:
         elif "dockerfile" in item.get("container", ""):
             return "dockerfile", item["container"].get("dockerfile", default_image)
         else:
-            inst_type = None
-            if self.global_type is not None:
-                inst_type = default_type
-            inst_image = None
-            if self.global_image is not None:
-                inst_image = default_image
+            inst_type = default_type if self.global_type is not None else None
+            inst_image = default_image if self.global_image is not None else None
             return inst_type, inst_image
 
     def init_task_type_image(self, task: Mapping[str, Any],
@@ -267,8 +261,7 @@ class CLI:
             task = self.ccfg.tasks[self.valid_name()]
             env = self.ccfg.global_env.copy()
             env.update(task['env'])
-            keys = list(env.keys())
-            keys.sort()
+            keys = sorted(env.keys())
             for key in keys:
                 if key.startswith("_"):
                     continue  # Assume private to Cirrus-CI
@@ -298,10 +291,7 @@ class CLI:
 
     def valid_name(self) -> str:
         """Print helpful error message when task name is invalid, or return it."""
-        if self.args.envs is not None:
-            task_name = self.args.envs
-        else:
-            task_name = self.args.inst
+        task_name = self.args.envs if self.args.envs is not None else self.args.inst
         file_name = self.args.filepath.name
         if task_name not in self.ccfg.names:
             self.parser.print_help()

@@ -59,14 +59,13 @@ def get_raw_taskinfo(gqlclient, build_id):
     ''')
     query_vars = dict(build_id=build_id)
     result = gqlclient.execute(query, variable_values=query_vars)
-    if "build" in result and result["build"]:
-        result = result["build"]
-        if "tasks" in result and len(result["tasks"]):
-            return result["tasks"]
-        else:
-            raise RuntimeError(f"No tasks found for build with id {build_id}")
-    else:
+    if "build" not in result or not result["build"]:
         raise RuntimeError(f"No Cirrus-CI build found with id {build_id}")
+    result = result["build"]
+    if "tasks" in result and len(result["tasks"]):
+        return result["tasks"]
+    else:
+        raise RuntimeError(f"No tasks found for build with id {build_id}")
 
 
 def art_to_url(tid, artifacts, repo, bucket):
@@ -145,10 +144,7 @@ if __name__ == "__main__":
     repo = get_arg(1, "repo. owner/name")
     bucket = get_arg(2, "bucket")
     build_id = get_arg(3, "build ID")
-    path_rx = None
-    if len(sys.argv) >= 5:
-        path_rx = re.compile(get_arg(4, "path rx"))
-
+    path_rx = re.compile(get_arg(4, "path rx")) if len(sys.argv) >= 5 else None
     # Ref: https://cirrus-ci.org/api/
     cirrus_graphql_xport = RequestsHTTPTransport(
         url=CCI_GQL_URL,
@@ -159,8 +155,11 @@ if __name__ == "__main__":
 
     task_art_map = get_task_art_map(gqlclient, repo, bucket, build_id)
     loop = asyncio.get_event_loop()
-    download_tasks = []
-    for task_name, art_names_urls in task_art_map.items():
-        download_tasks.append(loop.create_task(
-            download_artifacts(task_name, art_names_urls, path_rx)))
+    download_tasks = [
+        loop.create_task(
+            download_artifacts(task_name, art_names_urls, path_rx)
+        )
+        for task_name, art_names_urls in task_art_map.items()
+    ]
+
     loop.run_until_complete(asyncio.gather(*download_tasks))

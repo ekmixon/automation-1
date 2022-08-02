@@ -31,10 +31,8 @@ class TestBase(unittest.TestCase):
     def tearDown(self):
         """Finalize after every test."""
         del self.cci_env
-        try:
+        with contextlib.suppress(KeyError):
             del sys.modules["cci_env"]
-        except KeyError:
-            pass
 
 
 class TestEnvRender(TestBase):
@@ -145,8 +143,8 @@ class TestRenderTasks(TestBase):
 
     def test_empty_in_empty_out(self):
         """Verify initializing with empty tasks and globals results in empty output."""
-        result = self.CCfg(dict(env=dict())).tasks
-        self.assertDictEqual(result, dict())
+        result = self.CCfg(dict(env={})).tasks
+        self.assertDictEqual(result, {})
 
     def test_simple_render(self):
         """Verify rendering of task local and global env. vars."""

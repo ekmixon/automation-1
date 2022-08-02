@@ -75,7 +75,7 @@ class TestUtils(TestBase):
     def test_get_arg(self):
         argv=('test0', 'test1', 'test2', 'test3', 'test4', 'test5')
         with patch('sys.argv', new=argv):
-            for arg_n in range(0,6):
+            for arg_n in range(6):
                 with self.subTest(arg_n=arg_n):
                     expected = f"test{arg_n}"
                     self.assertEqual(
